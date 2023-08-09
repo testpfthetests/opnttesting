@@ -1,0 +1,85 @@
+# TODO: parameterize with version-fragment. "bug" by default.
+name: Calculate next version
+on:
+  workflow_call:
+    outputs:
+      next-version:
+        description: Next semver
+        value: ${{ jobs.main.outputs.next-version }}
+      tag-exists:
+        description: Flag indicating if tag already exists or needs to be pushed
+        value: ${{ jobs.main.outputs.tag-exists }}
+
+jobs:
+
+  main:
+    env:
+      NEXT_VERSION: ''
+      TAG_EXISTS: false
+
+    runs-on: ubuntu-latest
+
+    outputs:
+      next-version: ${{ env.NEXT_VERSION }}
+      tag-exists: ${{ env.TAG_EXISTS }}
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      # if the commit on master was explicitly tagged with semver
+      - name: Try to get current semver tag for the master branch
+        if: ${{ github.ref == 'refs/heads/main' }}
+        run: |
+          COMMIT_TAG=$(git describe --tags --exact-match) || true
+          echo Current commit tag $COMMIT_TAG
+          
+          if [[ $COMMIT_TAG =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo Found valid semver commit tag $COMMIT_TAG
+            echo NEXT_VERSION=$COMMIT_TAG >> $GITHUB_ENV
+            echo TAG_EXISTS=true >> $GITHUB_ENV
+          fi
+
+      # if we are on the branch, generate meaningful version
+      - name: Generate git tag for a branch
+        if: ${{ github.ref_type == 'branch' && github.ref != 'refs/heads/main' }}
+        run: |
+          echo Trying to find the closest version on main branch
+          
+          SHORT_HASH=$(git rev-parse --short HEAD)
+          
+          BASE_COMMIT=$(git merge-base origin/main ${{ github.ref }})
+          echo Base commit $BASE_COMMIT
+          
+          git checkout $BASE_COMMIT
+          echo "Checked out $BASE_COMMIT"
+          
+          CLOSEST_TAG=$(git describe --tags || echo 0.0.0)
+          echo "Closest tag: $CLOSEST_TAG"
+          
+          echo NEXT_VERSION=$CLOSEST_TAG-$SHORT_HASH >> $GITHUB_ENV
+
+      # if on master, but not having an explicit tag, calculate the next version
+      - name: Find latest tag for master
+        if: ${{ env.NEXT_VERSION == '' && github.ref == 'refs/heads/main' }}
+        uses: actions-ecosystem/action-get-latest-tag@v1
+        id: get-latest-tag
+        with:
+          initial_version: 0.0.0
+          semver_only: true
+
+      - name: Calculate next release version from ${{ steps.get-latest-tag.outputs.tag }}
+        if: ${{ env.NEXT_VERSION == '' && github.ref == 'refs/heads/main' }}
+        id: bump_version
+        uses: christian-draeger/increment-semantic-version@1.1.0
+        with:
+          current-version: ${{ steps.get-latest-tag.outputs.tag }}
+          version-fragment: bug
+
+      - name: Save next version to an env variable from the bumping step
+        if: ${{ env.NEXT_VERSION == '' && github.ref == 'refs/heads/main' }}
+        run: echo NEXT_VERSION=${{ steps.bump_version.outputs.next-version }} >> $GITHUB_ENV
+
+      - name: Print version ${{ env.NEXT_VERSION }}
+        run: echo Next version is $NEXT_VERSION
