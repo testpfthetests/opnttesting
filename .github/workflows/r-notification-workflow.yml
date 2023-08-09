@@ -1,0 +1,40 @@
+name: Notify on slack when PRs are opened/merged
+
+on:
+  workflow_call:
+    secrets:
+      SLACK_BOT_TOKEN:
+        description: 'Slack bot token'
+        required: true
+    inputs:
+        slack_channel_name:
+          type: string
+          description: 'Slack channel name where notifications will be send'
+          required: true
+
+jobs:
+  notify_slack_push_opened:
+    name: Notify Slack on PR creation
+    if: github.event.action == 'opened'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: abinoda/slack-action@master
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        with:
+          # message to send to slack
+          args: '{\"channel\":\"${{ inputs.slack_channel_name }}\",\"blocks\":[{\"type\": \"section\",\"text\": {\"type\": \"mrkdwn\",\"text\": \":github: New PR in *${{ github.event.repository.name }}* :github:\"}},{\"type\": \"section\",\"text\": {\"type\": \"mrkdwn\",\"text\": \"<${{ github.event.pull_request.html_url }}|*${{ github.event.pull_request.title }}*>\nBy: ${{ github.event.pull_request.user.login }}\"}}]}'
+        if: success()
+
+  notify_slack_merged:
+    name: Notify Slack on PR merged
+    if: github.event.pull_request.merged
+    runs-on: ubuntu-latest
+    steps:
+      - uses: abinoda/slack-action@master
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        with:
+          # message to send to slack
+          args: '{\"channel\":\"${{ inputs.slack_channel_name }}\",\"blocks\":[{\"type\": \"section\",\"text\": {\"type\": \"mrkdwn\",\"text\": \":git-merged: PR Merged into *${{ github.event.repository.name }}* :git-merged:\"}},{\"type\": \"section\",\"text\": {\"type\": \"mrkdwn\",\"text\": \"<${{ github.event.pull_request.html_url }}|*${{ github.event.pull_request.title }}*>\nBy: ${{ github.event.pull_request.user.login }} :clap-cat:\"}}]}'
+        if: success()
